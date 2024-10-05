@@ -4,7 +4,7 @@ import * as L from 'leaflet';
 @Component({
   selector: 'app-map',
   templateUrl: './map.component.html',
-  styleUrl: './map.component.css',
+  styleUrls: ['./map.component.css'],
   standalone: true
 })
 export class MapComponent implements OnInit {
