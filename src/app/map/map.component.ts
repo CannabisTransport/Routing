@@ -1,71 +1,89 @@
-import { Component, OnInit } from '@angular/core';
+// src/app/components/map/map.component.ts
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import * as L from 'leaflet';
+import { MapService } from './map.service';
+import { Subscription } from 'rxjs';
+import { TimelineService } from '../timeline/timeline.service';
 
 @Component({
   selector: 'app-map',
   templateUrl: './map.component.html',
   styleUrls: ['./map.component.css'],
-  standalone: true
+  standalone: true,
 })
-export class MapComponent implements OnInit {
+export class MapComponent implements OnInit, OnDestroy {
   private map: any;
-  private cities = L.layerGroup();
+  private geoJsonLayer: L.GeoJSON | undefined;
+  private yearMonthSubscription: Subscription;
+
+  constructor(private mapService: MapService, private timelineService: TimelineService) {}
 
   ngOnInit(): void {
     this.initMap();
-    this.loadCustomLayer();
+    // Subscribe to updates from TimelineService
+    this.yearMonthSubscription = this.timelineService.getYearMonthUpdates().subscribe(() => {
+      this.reloadGeoJSON();
+    });
   }
 
   private initMap(): void {
     const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    });
-
-    const osmHOT = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Tiles style by <a href="https://www.hotosm.org/" target="_blank">Humanitarian OpenStreetMap Team</a>'
+      attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     });
 
     this.map = L.map('map', {
-      center: [39.73, -104.99],
-      zoom: 10,
-      layers: [osm, this.cities]
+      center: [45.0, 22.5],
+      zoom: 7,
+      layers: [osm],
     });
 
-    const baseLayers = {
-      'OpenStreetMap': osm,
-      'OpenStreetMap.HOT': osmHOT
-    };
-
-    const overlays = {
-      'Cities': this.cities
-    };
-
-    const layerControl = L.control.layers(baseLayers, overlays).addTo(this.map);
-
-    const openTopoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    });
-    layerControl.addBaseLayer(openTopoMap, 'OpenTopoMap');
-
-    // Adding cities layer markers
-    L.marker([39.61, -105.02]).bindPopup('This is Littleton, CO.').addTo(this.cities);
-    L.marker([39.74, -104.99]).bindPopup('This is Denver, CO.').addTo(this.cities);
-    L.marker([39.73, -104.8]).bindPopup('This is Aurora, CO.').addTo(this.cities);
-    L.marker([39.77, -105.23]).bindPopup('This is Golden, CO.').addTo(this.cities);
-
-    // Adding parks layer
-    const parks = L.layerGroup([
-      L.marker([39.75, -105.09]).bindPopup('This is Crown Hill Park.'),
-      L.marker([39.68, -105.00]).bindPopup('This is Ruby Hill Park.')
-    ]);
-
-    layerControl.addOverlay(parks, 'Parks');
+    // Initial load of GeoJSON data
+    this.loadGeoJSON();
   }
 
-  loadCustomLayer() {
-    const customLayer = L.geoJSON()
+  private loadGeoJSON(): void {
+    this.mapService.getGeoJSON().subscribe((geoJsonData) => {
+      this.geoJsonLayer = L.geoJSON(geoJsonData, {
+        pointToLayer: (feature, latlng) => {
+          return L.circleMarker(latlng, {
+            radius: 6,
+            fillColor: this.getColorByDensity(feature.properties.density),
+            color: '#000',
+            weight: 1,
+            opacity: 1,
+            fillOpacity: 0.8,
+          });
+        },
+        onEachFeature: (feature, layer) => {
+          const popupContent = `
+            <strong>Date:</strong> ${new Date(feature.properties.datestamp * 1000).toLocaleDateString()}<br>
+            <strong>Density:</strong> ${feature.properties.density}<br>
+            <strong>Top:</strong> ${feature.properties.top}<br>
+            <strong>Bottom:</strong> ${feature.properties.bottom}<br>
+            <strong>Left:</strong> ${feature.properties.left}<br>
+            <strong>Right:</strong> ${feature.properties.right}<br>
+          `;
+          layer.bindPopup(popupContent);
+        },
+      }).addTo(this.map);
+    });
+  }
+
+  private reloadGeoJSON(): void {
+    if (this.geoJsonLayer) {
+      this.map.removeLayer(this.geoJsonLayer); // Remove existing layer
+    }
+    this.loadGeoJSON(); // Load new GeoJSON data
+  }
+
+  private getColorByDensity(density: number): string {
+    if (density < 0.000032) return '#ff0000'; // Red
+    if (density < 0.000033) return '#ffcc00'; // Yellow
+    return '#00ff00'; // Green
+  }
+
+  ngOnDestroy(): void {
+    this.yearMonthSubscription.unsubscribe(); // Clean up subscription
   }
 }
